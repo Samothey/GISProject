@@ -134,3 +134,4 @@ min(full_data$datetime, na.rm = TRUE)
 all.equal(full_data$do_mgl_1m, full_data$do_mgl_1m)
 all.equal(full_data$do_sat_1m, full_data$do_sat_1m)
 
+view(full_data)
