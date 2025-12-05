@@ -1,9 +1,18 @@
 
-## ================================================================
-##    UPPER BROOKS BUOY CLEANING PIPELINE
-##    Keeps UTC + MST, Add in pressure from weather station 
-## =================================================================
-
+################################################################################
+#   UPPER BROOKS BUOY – 2025 CLEANING & MERGING PIPELINE
+#   Author: Samantha Peña
+#   Purpose:
+#      - Convert all sensors to UTC + MST
+#      - Clean MiniDOT DO & Temp (surface + 4m)
+#      - Clean PAR sensor (4m temperature + PAR)
+#      - Clean pendant temperature (2m & 3m)
+#      - Clean weather station pressure (GMT → UTC → MST)
+#      - Unify and average 4m temperatures across sensors
+#      - Elevation-correct atmospheric pressure
+#      - Compute temperature-dependent DO saturation using Garcia–Benson
+#      - Export clean final dataset
+###############################################################################
 library(tidyverse)
 library(lubridate)
 library(purrr)
@@ -14,10 +23,10 @@ library(LakeMetabolizer)
  ## Function: Fix midight timestamp that loses "00:00:00" 
  ## (removed by converting datetime to character (do this before writing to csv)
  ## ---------------------------------------------------------- 
-      convert_to_character <- function(df) {
+    convert_to_character <- function(df) {
      na_test <- as.POSIXct(df$datetime_UTC, format = "%Y-%m-%d %H:%M") # Checks for NA's in UTC column (will only find them at midnight)
      na_indices <- is.na(na_test) # Gets indices of NA's 
-       df$datetime[na_indices] <- paste(df$datetime[na_indices], "00:00:00") # Replaces with 00:00:00
+       df$datetime_UTC[na_indices] <- paste(df$datetime_UTC[na_indices], "00:00:00") # Replaces with 00:00:00
       return(df)
         }
   
@@ -41,22 +50,30 @@ library(LakeMetabolizer)
   ## =====================================================================
   ## ATMOSPHERIC PRESSURE (ONLY PRESSURE column kept) 
   ## =====================================================================
-   weather_pressure <- read.csv("/Users/samanthapena/Desktop/Project/Brooks_lake_2025/DATA/BrooksWeather_2025.csv", skip = 1, header = TRUE) %>%
-     rename(datetime_raw = Date.Time..GMT.07.00,
-  pressure_inHg = Pressure..in.Hg..LGR.S.N..22313858..SEN.S.N..22279472.) %>%
-  select(datetime_raw, pressure_inHg) %>%    # Keep ONLY pressure
-  mutate(
-    # Convert raw timestamp to POSIXct assuming input is GMT-7
-    datetime_GMT7 = mdy_hms(datetime_raw, tz = "Etc/GMT+7"),
-    
-    # Convert to **both UTC and MST**
-    datetime_UTC = with_tz(datetime_GMT7, tzone = "UTC"),
-    datetime_MST = with_tz(datetime_GMT7, tzone = "America/Denver"),
-    
-    # Convert inches Hg → mbar
-    atm_pressure_mbar = pressure_inHg * 33.8639
+  weather_pressure <- read.csv("/Users/samanthapena/Desktop/Project/Brooks_lake_2025/DATA/BrooksWeather_2025.csv", skip = 1, header = TRUE
   ) %>%
-  select(datetime_UTC, datetime_MST, atm_pressure_mbar)
+    rename(
+      datetime_raw = Date.Time..GMT.07.00,
+      pressure_inHg = Pressure..in.Hg..LGR.S.N..22313858..SEN.S.N..22279472.
+    ) %>%
+    select(datetime_raw, pressure_inHg) %>%
+    mutate(
+      # Convert raw timestamp (GMT-7) → POSIXct
+      datetime_GMT7 = mdy_hms(datetime_raw, tz = "Etc/GMT+7"),
+      
+      # Convert to UTC & MST for merging later
+      datetime_UTC = with_tz(datetime_GMT7, "UTC"),
+      datetime_MST = with_tz(datetime_GMT7, "America/Denver"),
+      
+      # Convert inches Hg → millibars
+      atm_pressure_mbar = pressure_inHg * 33.8639
+    ) %>%
+    mutate(
+      # Round AFTER converting
+      datetime_UTC = round_date(datetime_UTC, "10 minutes"),
+      datetime_MST = round_date(datetime_MST, "10 minutes")
+    ) %>%
+    select(datetime_UTC, datetime_MST, atm_pressure_mbar)
       
   ## =================================================================================
   ## MINI DOT SURFACE SENSOR ( DISSOLVED OXYGEN, TEMPERATURE, BATTERY)
@@ -227,10 +244,107 @@ library(LakeMetabolizer)
        "3m"
      )
    
+     # ====================================================================
+     # TRIM ALL DATASETS TO THE WEATHER STATION START TIME (PRE-MERGE)
+     # ====================================================================
+     
+     weather_start <- min(weather_pressure$datetime_UTC, na.rm = TRUE)
+     deploy_end <- ymd_hms("2025-10-14 20:00:00", tz = "UTC")
+     
+     do_surface      <- do_surface      %>% filter(datetime_UTC >= weather_start,
+                                                   datetime_UTC <= deploy_end)
+     
+     do_depth        <- do_depth        %>% filter(datetime_UTC >= weather_start,
+                                                   datetime_UTC <= deploy_end)
+     
+     par             <- par             %>% filter(datetime_UTC >= weather_start,
+                                                   datetime_UTC <= deploy_end)
+     
+     temp_2m         <- temp_2m         %>% filter(datetime_UTC >= weather_start,
+                                                   datetime_UTC <= deploy_end)
+     
+     temp_3m         <- temp_3m         %>% filter(datetime_UTC >= weather_start,
+                                                   datetime_UTC <= deploy_end)
+     
+     weather_pressure <- weather_pressure %>% filter(datetime_UTC >= weather_start,
+                                                     datetime_UTC <= deploy_end)
+  
+     
      ## ========================================================================================
      ##  MERGE ALL DATA (USING UTC AS THE MERGE KEY)
      ## =================================================================================  
+     
+     df_list <- list(
+       do_surface, 
+       do_depth,
+       par,
+       temp_2m,
+       temp_3m,
+       weather_pressure
+     )
+     
+     upper_brooks <- reduce(df_list, full_join, by = "datetime_UTC") %>%
+       
+       # unify MST timestamps
+       mutate(datetime_MST = coalesce(!!!select(., matches("^datetime_MST")))) %>%
+       select(-matches("^datetime_MST\\.")) %>%
+       
+       # convert EVERYTHING that needs to be numeric
+       mutate(
+         temp_1m      = as.numeric(trimws(temp_1m)),
+         temp_2m      = as.numeric(temp_2m),
+         temp_3m      = as.numeric(temp_3m),
+         do_temp_4m   = as.numeric(trimws(do_temp_4m)),
+         par_temp_4m  = as.numeric(trimws(par_temp_4m)),
+         do_mgl_1m    = as.numeric(trimws(do_mgl_1m)),
+         do_mgl_4m    = as.numeric(trimws(do_mgl_4m))
+       ) %>%
+       
+       # unified 4m temp
+       mutate(temp_4m = rowMeans(cbind(do_temp_4m, par_temp_4m), na.rm = TRUE)) %>%
+     
+       
+       # pressure correction + DO saturation
+       mutate(
+         atm_pressure_mbar = adjust_pressure_elevation(
+           atm_pressure_mbar,
+           elev_from = 2758,
+           elev_to   = 2775,
+           T_C       = temp_1m
+    ),
+         
+         do_sat_mgl_1m = o2.at.sat.base(temp_1m, atm_pressure_mbar, model = "garcia-benson"),
+         do_sat_mgl_4m = o2.at.sat.base(temp_4m, atm_pressure_mbar, model = "garcia-benson"),
+         
+         do_sat_1m = do_mgl_1m / do_sat_mgl_1m * 100,
+         do_sat_4m = do_mgl_4m / do_sat_mgl_4m * 100
+       ) %>%
+       select(-do_sat_mgl_1m, -do_sat_mgl_4m)
+     
+     #------------------------------------------------------------------------------
+     # 9. Export
+     #------------------------------------------------------------------------------
+     write.csv(
+       upper_brooks,"/Users/samanthapena/Desktop/Project/Brooks_lake_2025/DATA/Upper Brooks/UpperBrooks_2025_merged_clean.csv",
+       row.names = FALSE
+     )
+     df <- read.csv("/Users/samanthapena/Desktop/Project/Brooks_lake_2025/DATA/Upper Brooks/UpperBrooks_2025_merged_clean.csv")
+     
+     View(df)        # opens spreadsheet-style viewer in RStudio
+     head(df)        # first 6 rows
+     tail(df)        # last 6 rows
+     glimpse(df)     # structure + column types
+     summary(df)     # quick stats for each column
+     
+       ###################
       
+     summary(weather_pressure$atm_pressure_mbar)
+     head(weather_pressure)
+     
+       
+  
+  
+     
      
      ##===============================================
      ## Quick check for PAR TEMP AND DO TEMP
