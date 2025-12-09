@@ -7,6 +7,7 @@ library(shiny)
 library(dygraphs)
 library(xts)
 library(dplyr)
+library(lubridate)
 
 #------------------------------------------------------------------
 # LOAD CLEAN DATA (RDS – preserves time and types perfectly)
@@ -16,6 +17,24 @@ upper_brooks <- readRDS("/Users/samanthapena/Desktop/Project/Brooks_lake_2025/DA
 # Ensure datetime exists and is POSIXct
 stopifnot("datetime_UTC" %in% names(upper_brooks))
 stopifnot(inherits(upper_brooks$datetime_UTC, "POSIXct"))
+
+#------------------------------------------------------------------
+# SMART AXIS RULES
+#------------------------------------------------------------------
+
+y1_auto <- c(
+  "temp_1m","temp_2m","temp_3m","temp_4m",
+  "do_mgl_1m","do_mgl_4m",
+  "do_sat_1m","do_sat_4m",
+  "par_surface","par_4m",
+  "atm_pressure_raw","atm_pressure_buoy",
+  "RH"
+)
+
+y2_auto <- c(
+  "wind_speed","gust_speed","wind_dir","temp_air"
+)
+
 
 #------------------------------------------------------------------
 # USER INTERFACE
@@ -71,47 +90,54 @@ server <- function(input, output, session) {
       )
     
     # thinning if selected
-    if (input$thin) {
-      df <- df[seq(1, nrow(df), 3), ]
+    if (input$thin) { df <- df[seq(1, nrow(df), 3), ]
     }
     
     df
   })
   
-  #---------------------
-  # Debug printing
-  #---------------------
+  #Debug info panel
+  #-----------------------------------------
   output$debug <- renderPrint({
     cat("Selected vars:", input$vars, "\n")
-    cat("Rows in filtered data:", nrow(filtered_data()), "\n")
-    cat("Datetime range:", range(filtered_data()$datetime_UTC), "\n")
+    cat("Rows:", nrow(filtered_data()), "\n")
+    print(head(filtered_data()))
   })
   
-  #---------------------
+  #-----------------------------------------
   # Main dygraph
-  #---------------------
+  #-----------------------------------------
   output$plot <- renderDygraph({
     df <- filtered_data()
+    vars <- input$vars
+    
     req(nrow(df) > 1)
-    req(length(input$vars) > 0)
+    req(length(vars) > 0)
     
-    # Build xts object for selected variables
-    xts_data <- xts(df[, input$vars, drop = FALSE], order.by = df$datetime_UTC)
+    xts_data <- xts(df[, vars, drop = FALSE], order.by = df$datetime_UTC)
     
-    # Initial dygraph
-    dg <- dygraph(xts_data, main = "Upper Brooks – Multi-Variable Time Series") %>%
+    g <- dygraph(xts_data, main = "Upper Brooks – Multi-Variable Time Series") %>%
       dyRangeSelector() %>%
       dyLegend(show = "always")
     
-    # Add a secondary y-axis if more than one variable selected
-    if (length(input$vars) > 1) {
-      for (v in input$vars[-1]) {
-        dg <- dg %>% dySeries(v, axis = "y2")
-      }
-      dg <- dg %>% dyAxis("y2", label = "Secondary Axis")
+    #-----------------------------------------
+    # SMART AXIS ASSIGNMENT
+    #-----------------------------------------
+    for (v in vars) {
+      
+      axis_side <- ifelse(
+        v %in% y2_auto, "y2",  # wind & related vars
+        "y"                    # all DO, temp, PAR, pressure → Y1
+      )
+      
+      g <- g %>% dySeries(v, axis = axis_side)
     }
     
-    dg
+    g <- g %>%
+      dyAxis("y",  label = "Y1: Temp / DO / PAR / Pressure") %>%
+      dyAxis("y2", label = "Y2: Wind / Air Temp / Wind Dir")
+    
+    g
   })
 }
 
