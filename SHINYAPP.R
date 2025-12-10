@@ -1,7 +1,14 @@
-## ============================================================
-## UPPER BROOKS – MULTI-VARIABLE + QA/QC DASHBOARD (FINAL VERSION)
-## Includes DO bubble logic, DO_sat rules, temp2/3 flatline disable,
-## Metadata & Help tab
+## ###############################################################################
+#   UPPER BROOKS BUOY DATA – Creating a SHINY APP 
+#   Author: Samantha Peña
+#   Purpose:
+#      - upload uncleaned data
+#      - clean data (Includes DO bubble logic, DO_sat rules, temp2/3 flatline disable,)
+#      - Create QAQC tabs 
+#.     - create new file of cleaned data for analysis
+###############################################################################============================================================
+
+## load libraries 
 ## ============================================================
 
 library(shiny)
@@ -183,7 +190,7 @@ run_qaqc_var <- function(df, var) {
   spike_threshold <- case_when(
     grepl("temp", var)       ~ 2,
     grepl("do_mgl", var)     ~ 2,
-    grepl("do_sat", var)     ~ 250,   # big tolerance for sat spikes (bloom-driven)
+    grepl("do_sat", var)     ~ 250,   # big tolerance for sat spikes due to (bloom-driven)
     grepl("par", var)        ~ 300,
     grepl("wind", var)       ~ 5,
     TRUE ~ 9999
@@ -210,7 +217,8 @@ run_qaqc_var <- function(df, var) {
   do_spike <- if (grepl("do_", var)) spike_flag else rep(FALSE, n)
   
   #----------------------------------------------------
-  # FLATLINES (ignore temp_2m & temp_3m)
+  # FLATLINES (ignore temp_2m & temp_3m 
+  # because they were interpolated. a.k.a many flatlines/flagged)
   #----------------------------------------------------
   flat_flag <- rep(FALSE, n)
   
@@ -244,7 +252,7 @@ run_qaqc_var <- function(df, var) {
   }
   
   #----------------------------------------------------
-  # DO bubble artifact detection (using the new functions)
+  # DO bubble artifact detection
   #----------------------------------------------------
   bubble_flag <- rep(FALSE, n)
   
@@ -629,5 +637,5 @@ server <- function(input, output, session) {
   })
 }
 
-#------------------------------------------------------------------
+#### RUN THE!!! :) -----------------------------------------------------------------
 shinyApp(ui, server)

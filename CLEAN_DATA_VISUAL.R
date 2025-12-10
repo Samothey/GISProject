@@ -1,18 +1,27 @@
-## ============================================================
-## In this script we are going to get the flagged csv sheet 
-## that our shiny app created and we are going to remove the 
-# flagged values (within reason), after we will visualize 
-## the data and then run some analysis.
-## ============================================================
+##################################################################################
+#   UPPER BROOKS BUOY DATA - Clean all flagged data
+#   Author: Samantha Peña
+#   Purpose:
+#         In this script we are going to get the flagged csv sheet 
+##        that our shiny app created and we are going to remove the 
+##        flagged values (within reason), after we will visualize 
+##        the data and then run some analysis.
+###############################################################################============================================================
+
+## load libraries ============================================================
 
 library(dplyr)
 library(readr)
 library(tidyr)
 library(lubridate)
+library(dygraphs)
+library(xts)
+library(tidyverse)
+
 
 ## 1. FILE PATHS -------------------------------------------------
 
-# Original pre-QA/QC dataset (same one you used in Shiny)
+# Original pre-QA/QC dataset 
 path_raw_rds   <- "/Users/samanthapena/Desktop/GISProject/upper_brooks_2025_clean.rds"
 
 
@@ -32,8 +41,7 @@ upper_raw <- readRDS(path_raw_rds)
 flags_all <- read_csv(path_flags_csv,
                       show_col_types = FALSE)
 
-# Check columns in flags_all if you want:
-# glimpse(flags_all)
+
 
 ## 3. VARIABLES OF INTEREST -------------------------------------
 
@@ -96,7 +104,7 @@ raw_long_clean <- raw_long_flagged %>%
     value_clean = if_else(bad_flag, NA_real_, value)
   )
 
-## 6. WIDE FORMAT (BACK TO ONE COLUMN PER VARIABLE) --------------
+## 6. WIDE FORMAT --------------
 
 do_temp_clean_wide <- raw_long_clean %>%
   select(datetime_UTC, variable, value_clean) %>%
@@ -127,11 +135,6 @@ cat("Saved CSV to: ", path_out_csv, "\n", sep = "")
 ### UPPER BROOKS – RAW vs CLEANED DATA VISUALIZATION
 ### Allows toggling between datasets
 ### ===============================================================
-
-library(dygraphs)
-library(xts)
-library(tidyverse)
-library(lubridate)
 
 ## ---------------------------------------------------------------
 ## 1. Load RAW and CLEANED datasets
@@ -225,18 +228,7 @@ dygraph(temp_xts, main = paste("Upper Brooks Temperature (", data_choice, ")", s
   dyRangeSelector()
 
 ## ---------------------------------------------------------------
-## 8. Multi-panel Weather Visualization
-## ---------------------------------------------------------------
-weather_xts <- xts(
-  upper_brooks %>% select(wind_speed, gust_speed),
-  order.by = upper_brooks$dt
-)
-
-dygraph(weather_xts, main = paste("Weather Variables (", data_choice, ")", sep="")) %>%
-  dyRangeSelector()
-
-## ---------------------------------------------------------------
-## 9. Mixed stratification panel (Temp + Wind)
+## 8. Mixed stratification panel (Temp + Wind)
 ## ---------------------------------------------------------------
 ## plot surafce and depth temp 
 strat_xts <- xts(
@@ -264,7 +256,7 @@ strat_xts <- xts(
 dygraph(strat_xts, main = paste("Stratification Drivers (", data_choice, ")", sep="")) %>%
   dyRangeSelector()
 
-## END
+## END,  next some stats and analysis. 
 
 
 
