@@ -4,19 +4,30 @@
 ### ===============================================================
  ## make sure to run code for upper brooks so it is in evvironemtn. 
 
-lapply(c("dygraphs", "xts", "tidyverse", "lubridate"), require, character.only = TRUE)
+library(dygraphs)
+library(xts)
+library(tidyverse)
+library(lubridate)
 
+upper_brooks <- readRDS(
+  "/Users/samanthapena/Desktop/GISProject/upper_brooks_2025_clean.rds"
+)
+
+stopifnot("datetime_UTC" %in% names(upper_brooks))
+stopifnot(inherits(upper_brooks$datetime_UTC, "POSIXct"))
+
+# Create unified datetime column for plotting
 upper_brooks <- upper_brooks %>%
-  mutate(dt = as.POSIXct(datetime_UTC, tz = "UTC"))
-
+  mutate(dt = with_tz(datetime_UTC, "America/Denver"))
 
 ## -------------------------------------------------------------------
 ## 1. Generic dygraph function for any variable
 ## -------------------------------------------------------------------
+
 dy_var <- function(df, var, start = "2025-06-29", end = "2025-10-14") {
   
   df2 <- df %>% 
-    filter(dt >= start, dt <= end)
+    filter(dt >= ymd(start), dt <= ymd(end))
   
   dat <- xts(df2[[var]], order.by = df2$dt)
   
@@ -26,53 +37,32 @@ dy_var <- function(df, var, start = "2025-06-29", end = "2025-10-14") {
 }
 
 ## Examples — you can now use ANY variable:
-dy_var(upper_brooks, "temp_1m")
+
 dy_var(upper_brooks, "do_mgl_1m")
-dy_var(upper_brooks, "par_4m")
-dy_var(upper_brooks, "atm_pressure_buoy")
+dy_var(upper_brooks, "do_mgl_4m")
 
-## NEW: Weather variables
-dy_var(upper_brooks, "temp_air")
-dy_var(upper_brooks, "RH")
-dy_var(upper_brooks, "par_surface")
-dy_var(upper_brooks, "wind_speed")
-dy_var(upper_brooks, "gust_speed")
-dy_var(upper_brooks, "wind_dir")
-dy_var(upper_brooks, "atm_pressure_raw")
-dy_var(upper_brooks, "atm_pressure_buoy")
-
-
-## -------------------------------------------------------------------
-## 2. Depth-specific temperature views
-## -------------------------------------------------------------------
-view_temp <- function(df, depth){
-  
-  df2 <- df %>%
-    filter(dt >= "2025-06-20", dt <= "2025-10-20") %>%
-    select(dt, temp = !!sym(depth))
-  
-  dat <- xts(df2$temp, order.by = df2$dt)
-  
-  dygraph(dat, main = paste("Temperature at", depth)) %>%
-    dyRangeSelector()
-}
-
-view_temp(upper_brooks, "temp_1m")
-view_temp(upper_brooks, "temp_4m")
-
+dy_var(upper_brooks, "temp_1m")
+dy_var(upper_brooks, "temp_2m")
+dy_var(upper_brooks, "temp_3m")
+dy_var(upper_brooks, "temp_4m")
 
 ## -------------------------------------------------------------------
 ## 3. Depth-specific Dissolved Oxygen views
 ## -------------------------------------------------------------------
+## -------------------------------------------------------------------
+## 3. Depth-specific Dissolved Oxygen views
+## -------------------------------------------------------------------
+
 view_DO <- function(df, depth){
   
   df2 <- df %>%
-    filter(dt >= "2025-06-20", dt <= "2025-10-20") %>%
+    filter(dt >= ymd("2025-06-20"), dt <= ymd("2025-10-20")) %>%
     select(dt, DO = !!sym(depth))
   
   dat <- xts(df2$DO, order.by = df2$dt)
   
   dygraph(dat, main = paste("DO mg/L at", depth)) %>%
+    dyAxis("y", label = "mg/L") %>%
     dyRangeSelector()
 }
 
@@ -95,6 +85,23 @@ dygraph(temp_xts, main = "Upper Brooks Temperature All Depths") %>%
   dySeries("temp_4m", label = "4 m") %>%
   dyRangeSelector()
 
+## -------------------------------------------------------------------
+## 2. Depth-specific temperature views
+## -------------------------------------------------------------------
+view_temp <- function(df, depth){
+  
+  df2 <- df %>%
+    filter(dt >= "2025-06-20", dt <= "2025-10-20") %>%
+    select(dt, temp = !!sym(depth))
+  
+  dat <- xts(df2$temp, order.by = df2$dt)
+  
+  dygraph(dat, main = paste("Temperature at", depth)) %>%
+    dyRangeSelector()
+}
+
+view_temp(upper_brooks, "temp_1m")
+view_temp(upper_brooks, "temp_4m")
 
 ## -------------------------------------------------------------------
 ## 5. NEW — Multi-panel weather visualization
